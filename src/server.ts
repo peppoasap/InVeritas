@@ -8,7 +8,7 @@ import * as middlewares from './middlewares';
 import api from './api';
 import MessageResponse from './interfaces/MessageResponse';
 import { Socket, Server as SocketIOServer } from 'socket.io';
-import { createServer, Server as HTTPServer } from 'http';
+import { createServer, Server as HTTPServer } from 'https';
 import path from 'path';
 import { FaceDetection } from './engine/face';
 import * as mediasoup from 'mediasoup';
@@ -78,7 +78,21 @@ export class Server {
     this.app.use(middlewares.notFound);
     this.app.use(middlewares.errorHandler);
 
-    this.httpServer = createServer(this.app);
+    const { sslKey, sslCrt } = config;
+    if (!fs.existsSync(sslKey) || !fs.existsSync(sslCrt)) {
+      console.error('SSL files are not found. check your config.js file');
+      process.exit(0);
+    }
+
+    const tls = {
+      cert: fs.readFileSync(sslCrt),
+      key: fs.readFileSync(sslKey),
+    };
+
+    this.httpServer = createServer(tls, this.app);
+    this.httpServer.on('error', (err) => {
+      console.error('starting web server failed:', err);
+    });
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
         origin: '*',
@@ -449,8 +463,8 @@ export class Server {
     });
   };
 
-  public listen() {
-    this.startExpressServer();
-    this.startMediaServer();
+  public async listen() {
+    await this.startExpressServer();
+    await this.startMediaServer();
   }
 }
