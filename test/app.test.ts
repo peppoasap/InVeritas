@@ -1,6 +1,6 @@
 import request from 'supertest';
 
-import app from '../src/app';
+import app from '../src/server';
 
 describe('app', () => {
   it('responds with a not found message', (done) => {
@@ -18,8 +18,12 @@ describe('GET /', () => {
       .get('/')
       .set('Accept', 'application/json')
       .expect('Content-Type', /json/)
-      .expect(200, {
-        message: '🦄🌈✨👋🌎🌍🌏✨🌈🦄',
-      }, done);
+      .expect(
+        200,
+        {
+          message: '🦄🌈✨👋🌎🌍🌏✨🌈🦄',
+        },
+        done,
+      );
   });
 });
