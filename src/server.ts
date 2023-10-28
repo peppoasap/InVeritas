@@ -32,6 +32,7 @@ export class Server {
   private app: Application = express();
 
   private httpServer: HTTPServer | undefined;
+  private mediasoupServer: HTTPServer | undefined;
 
   private io: SocketIOServer | undefined;
 
@@ -65,8 +66,8 @@ export class Server {
 
   constructor() {
     this.initialize();
-    this.handleSocket();
     this.handleRoutes();
+    this.handleSocket();
   }
 
   private initialize() {
@@ -93,9 +94,19 @@ export class Server {
     this.httpServer.on('error', (err) => {
       console.error('starting web server failed:', err);
     });
+
+    this.startExpressServer();
+
     this.io = new SocketIOServer(this.httpServer, {
+      serveClient: false,
+      path: '/server',
       cors: {
-        origin: 'http://localhost:4200',
+        origin: [
+          'http://localhost:4200',
+          'https://concilium.space',
+          'localhost:*',
+          '*',
+        ],
         methods: ['GET', 'POST'],
       },
     });
@@ -437,7 +448,7 @@ export class Server {
     return `tmp/sdp/${id}.sdp`;
   };
 
-  startMediaServer = async () => {
+  private async startMediaServer() {
     this.app.listen(process.env.MEDIASERVER_PORT || 4000, () => {
       console.log(
         `Media server is running on port ${
@@ -446,16 +457,16 @@ export class Server {
       );
     });
     await this.runMediasoupWorker();
-  };
+  }
 
-  startExpressServer = async () => {
+  private startExpressServer() {
     if (!this.httpServer) throw new Error('Http server is not initialized');
-    this.httpServer.listen(process.env.SERVER_PORT || 5000, () => {
+    this.httpServer.listen(config.listenPort || 5000, () => {
       console.log(
-        `Express server is running on port ${process.env.SERVER_PORT || 5000}`,
+        `Express server is running on port ${config.listenPort || 5000}`,
       );
     });
-  };
+  }
 
   handleSendStream = (socket: Socket, data: { frame: string }) => {
     this.faceDetector.getPersonsAnalysis(data.frame).then((result) => {
@@ -464,7 +475,7 @@ export class Server {
   };
 
   public async listen() {
-    await this.startExpressServer();
+    this.startExpressServer();
     await this.startMediaServer();
   }
 }
