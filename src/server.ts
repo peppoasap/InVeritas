@@ -76,13 +76,8 @@ export class Server {
     this.app.use(helmet());
     this.app.use(
       cors({
-        origin: [
-          'http://localhost:4200',
-          'https://concilium.space',
-          'localhost:*',
-          '*',
-        ],
-        methods: ['GET', 'POST'],
+        origin: ['http://localhost:4200'],
+        methods: ['HEAD', 'GET', 'POST', 'PUT'],
       }),
     );
     this.app.use(express.json());
@@ -111,13 +106,8 @@ export class Server {
       serveClient: false,
       path: '/server',
       cors: {
-        origin: [
-          'http://localhost:4200',
-          'https://concilium.space',
-          'localhost:*',
-          '*',
-        ],
-        methods: ['GET', 'POST'],
+        origin: ['http://localhost:4200'],
+        methods: ['HEAD', 'GET', 'POST'],
       },
     });
   }
