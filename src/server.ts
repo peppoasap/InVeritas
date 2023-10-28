@@ -475,7 +475,6 @@ export class Server {
   };
 
   public async listen() {
-    this.startExpressServer();
     await this.startMediaServer();
   }
 }
