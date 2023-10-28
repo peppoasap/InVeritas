@@ -19,8 +19,8 @@ export const config: {
 } = {
   listenIp: '0.0.0.0',
   listenPort: 5000,
-  sslCrt: '/etc/ssl/certs/ssl-cert-snakeoil.pem',
-  sslKey: '/etc/ssl/private/ssl-cert-snakeoil.key',
+  sslCrt: '/etc/ssl/private/cert.pem',
+  sslKey: '/etc/ssl/private/private.key',
   mediasoup: {
     // Worker settings
     worker: {
