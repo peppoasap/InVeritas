@@ -95,7 +95,7 @@ export class Server {
     });
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
-        origin: '*',
+        origin: 'http://localhost:4200',
         methods: ['GET', 'POST'],
       },
     });
