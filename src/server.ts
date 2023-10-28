@@ -449,13 +449,13 @@ export class Server {
   };
 
   private async startMediaServer() {
-    this.app.listen(process.env.MEDIASERVER_PORT || 4000, () => {
-      console.log(
-        `Media server is running on port ${
-          process.env.MEDIASERVER_PORT || 4000
-        }`,
-      );
-    });
+    // this.app.listen(process.env.MEDIASERVER_PORT || 4000, () => {
+    //   console.log(
+    //     `Media server is running on port ${
+    //       process.env.MEDIASERVER_PORT || 4000
+    //     }`,
+    //   );
+    // });
     await this.runMediasoupWorker();
   }
 
