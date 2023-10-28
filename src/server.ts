@@ -74,7 +74,17 @@ export class Server {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(morgan('dev'));
     this.app.use(helmet());
-    this.app.use(cors());
+    this.app.use(
+      cors({
+        origin: [
+          'http://localhost:4200',
+          'https://concilium.space',
+          'localhost:*',
+          '*',
+        ],
+        methods: ['GET', 'POST'],
+      }),
+    );
     this.app.use(express.json());
     this.app.use(middlewares.notFound);
     this.app.use(middlewares.errorHandler);
