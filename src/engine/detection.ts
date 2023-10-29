@@ -13,17 +13,16 @@ const config: Partial<Config> = {
   modelBasePath: 'file://src/models',
   debug: true,
   async: true,
-  warmup: 'full',
   cacheSensitivity: 0.75,
   filter: {
     enabled: true,
-    width: 0,
+    width: 240,
     height: 0,
     flip: true,
-    return: true,
-    brightness: 0,
-    contrast: 0,
-    sharpness: 0,
+    return: false,
+    brightness: -0.1,
+    contrast: 0.1,
+    sharpness: 0.3,
     blur: 0,
     saturation: 0,
     hue: 0,
@@ -42,7 +41,7 @@ const config: Partial<Config> = {
     enabled: true,
     detector: {
       rotation: false,
-      maxDetected: 10,
+      maxDetected: 1,
       skipFrames: 15,
       minConfidence: 0.3,
       iouThreshold: 0.1,
@@ -103,11 +102,11 @@ async function init() {
 
 async function execute(jpegBuffer: any) {
   if (busy) return; // skip processing if busy
-  // busy = true;
+  busy = true;
   const tensor = human?.tf.node.decodeJpeg(jpegBuffer, 3); // decode jpeg buffer to raw tensor
   const result = await human?.detect(tensor);
   human?.tf.dispose(tensor); // release tensor memory
-  // busy = false;
+  busy = false;
   return result;
 }
 

@@ -3,7 +3,7 @@ import ffmpeg from 'fluent-ffmpeg';
 ffmpeg.setFfmpegPath(ffmpegPath);
 import fs from 'fs';
 
-const VIDEO_OUTPUT_SIZE = '320x240';
+const VIDEO_OUTPUT_SIZE = '640x480';
 
 export const getBaseFfmpegCommand = (sdpFileUri: string) => {
   return ffmpeg(fs.createReadStream(sdpFileUri), {
@@ -31,7 +31,7 @@ export const getBaseFfmpegCommand = (sdpFileUri: string) => {
       '-q:v',
       '0.5',
     ])
-    .outputFPS(10);
+    .outputFPS(6);
 };
 
 export const deleteSdpFile = (sdpFileUri: string) => {
