@@ -32,7 +32,6 @@ export class Server {
   private app: Application = express();
 
   private httpServer: HTTPServer | undefined;
-  private mediasoupServer: HTTPServer | undefined;
 
   private io: SocketIOServer | undefined;
 
@@ -66,7 +65,6 @@ export class Server {
 
   constructor() {
     this.initialize();
-    this.handleRoutes();
     this.handleSocket();
   }
 
@@ -101,12 +99,11 @@ export class Server {
     });
 
     this.startExpressServer();
-
+    this.handleRoutes();
     this.io = new SocketIOServer(this.httpServer, {
       serveClient: false,
-      path: '/server',
       cors: {
-        origin: ['http://localhost:4200'],
+        origin: ['*'],
         methods: ['HEAD', 'GET', 'POST'],
       },
     });
@@ -118,7 +115,7 @@ export class Server {
         message: '🦄🌈✨👋🌎🌍🌏✨🌈🦄',
       });
     });
-    this.app.use('/api/v1', api);
+    // this.app.use('/api/v1', api);
   }
 
   private handleSocket() {
