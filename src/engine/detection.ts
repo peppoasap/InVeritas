@@ -103,11 +103,11 @@ async function init() {
 
 async function execute(jpegBuffer: any) {
   if (busy) return; // skip processing if busy
-  busy = true;
+  // busy = true;
   const tensor = human?.tf.node.decodeJpeg(jpegBuffer, 3); // decode jpeg buffer to raw tensor
   const result = await human?.detect(tensor);
   human?.tf.dispose(tensor); // release tensor memory
-  busy = false;
+  // busy = false;
   return result;
 }
 
