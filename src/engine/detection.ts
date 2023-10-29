@@ -53,6 +53,9 @@ const config: Partial<Config> = {
     description: { enabled: true, skipFrames: 10, minConfidence: 0.1 },
     emotion: { enabled: true, minConfidence: 0.2, skipFrames: 17 },
     antispoof: { enabled: true, skipFrames: 11 },
+    liveness: { enabled: true, skipFrames: 11 },
+    attention: { enabled: true, skipFrames: 11 },
+    gear: { enabled: true, skipFrames: 15 },
   },
   hand: {
     enabled: false,
