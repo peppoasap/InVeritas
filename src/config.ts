@@ -67,8 +67,8 @@ export const config: {
     webRtcTransport: {
       listenIps: [
         {
-          ip: '127.0.0.1',
-          announcedIp: undefined,
+          ip: '10.114.0.2',
+          announcedIp: '209.38.192.81',
         },
       ],
       initialAvailableOutgoingBitrate: 1000000,
