@@ -11,12 +11,12 @@ let busy = false; // busy flag
 const config: Partial<Config> = {
   backend: 'tensorflow',
   modelBasePath: 'file://src/models',
-  debug: true,
+  debug: false,
   async: true,
-  cacheSensitivity: 0.75,
+  cacheSensitivity: 0.5,
   filter: {
     enabled: true,
-    width: 240,
+    width: 0,
     height: 0,
     flip: true,
     return: false,
@@ -101,7 +101,7 @@ async function init() {
 // }
 
 async function execute(jpegBuffer: any) {
-  if (busy) return; // skip processing if busy
+  // if (busy) return; // skip processing if busy
   busy = true;
   const tensor = human?.tf.node.decodeJpeg(jpegBuffer, 3); // decode jpeg buffer to raw tensor
   const result = await human?.detect(tensor);

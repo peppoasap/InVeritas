@@ -31,7 +31,7 @@ export const getBaseFfmpegCommand = (sdpFileUri: string) => {
       '-q:v',
       '0.5',
     ])
-    .outputFPS(6);
+    .outputFPS(2);
 };
 
 export const deleteSdpFile = (sdpFileUri: string) => {
