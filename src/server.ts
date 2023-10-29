@@ -465,12 +465,6 @@ export class Server {
     });
   }
 
-  handleSendStream = (socket: Socket, data: { frame: string }) => {
-    this.faceDetector.getPersonsAnalysis(data.frame).then((result) => {
-      socket.emit('receive-stream', { data, result: JSON.stringify(result) });
-    });
-  };
-
   public async listen() {
     await this.startMediaServer();
   }
