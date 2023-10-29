@@ -153,7 +153,7 @@ export class Server {
       });
       socket.on('connectProducerTransport', async (data, callback) => {
         if (!this.producerTransport) return;
-
+        console.log(data.dtlsParameters);
         await this.producerTransport.connect({
           dtlsParameters: data.dtlsParameters,
         });

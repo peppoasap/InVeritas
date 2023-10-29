@@ -67,7 +67,7 @@ export const config: {
     webRtcTransport: {
       listenIps: [
         {
-          ip: '10.114.0.2',
+          ip: '0.0.0.0',
           announcedIp: '209.38.192.81',
         },
       ],
@@ -75,10 +75,10 @@ export const config: {
     },
     // PlainTransportOptions
     plainTransport: {
-      listenIp: { ip: '127.0.0.1', announcedIp: undefined },
+      listenIp: { ip: '0.0.0.0', announcedIp: undefined },
     },
     recording: {
-      ip: '127.0.0.1',
+      ip: '0.0.0.0',
       port: 5006,
       rtcpPort: 5007,
     },
