@@ -103,7 +103,7 @@ export class Server {
     this.io = new SocketIOServer(this.httpServer, {
       serveClient: false,
       cors: {
-        origin: ['*'],
+        origin: ['http://localhost:4200'],
         methods: ['HEAD', 'GET', 'POST'],
       },
     });
