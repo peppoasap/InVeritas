@@ -16,7 +16,7 @@ const config: Partial<Config> = {
   cacheSensitivity: 0.5,
   filter: {
     enabled: true,
-    width: 0,
+    width: 128,
     height: 0,
     flip: true,
     return: false,
