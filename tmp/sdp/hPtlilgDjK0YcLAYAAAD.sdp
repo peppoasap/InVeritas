@@ -1,0 +1,14 @@
+v=0
+    o=- 0 0 IN IP4 127.0.0.1
+    s=WebRTC_Room_hPtlilgDjK0YcLAYAAAD
+    t=0 0
+    m=video 5006 RTP/SAVPF 97
+    c=IN IP4 127.0.0.1
+    a=rtcp:5007
+    a=recvonly
+    a=rtpmap:97 VP8/90000
+    a=rtcp-fb:97 nack pli
+    a=mid:video
+    a=rtcp-mux
+    a=framerate:30
+    
