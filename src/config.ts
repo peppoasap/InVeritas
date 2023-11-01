@@ -20,9 +20,9 @@ export const config: {
   };
 } = {
   production: false,
-  listenIp: '127.0.0.1',
+  listenIp: '0.0.0.0',
   listenPort: 5000,
-  useHttps: false,
+  useHttps: true,
   sslCrt: '/etc/ssl/private/cert.pem',
   sslKey: '/etc/ssl/private/private.key',
   mediasoup: {
@@ -71,19 +71,19 @@ export const config: {
     webRtcTransport: {
       listenIps: [
         {
-          ip: '127.0.0.1',
-          // ip: '0.0.0.0',
-          // announcedIp: '209.38.192.81',
+          // ip: '127.0.0.1',
+          ip: '0.0.0.0',
+          announcedIp: '209.38.192.81',
         },
       ],
       initialAvailableOutgoingBitrate: 1000000,
     },
     // PlainTransportOptions
     plainTransport: {
-      listenIp: { ip: '127.0.0.1', announcedIp: undefined },
+      listenIp: { ip: '0.0.0.0', announcedIp: undefined },
     },
     recording: {
-      ip: '127.0.0.1',
+      ip: '0.0.0.0',
       port: 5006,
       rtcpPort: 5007,
     },
