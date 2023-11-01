@@ -5,12 +5,10 @@ import helmet from 'helmet';
 import cors from 'cors';
 
 import * as middlewares from './middlewares';
-import api from './api';
 import MessageResponse from './interfaces/MessageResponse';
-import { Socket, Server as SocketIOServer } from 'socket.io';
-import { createServer, Server as HTTPServer } from 'https';
-import path from 'path';
-import { FaceDetection } from './engine/face';
+import { Server as SocketIOServer } from 'socket.io';
+import { createServer, Server as HTTPSServer } from 'https';
+import { createServer as createHttpServer, Server as HTTPServer } from 'http';
 import * as mediasoup from 'mediasoup';
 import {
   Worker,
@@ -23,7 +21,8 @@ import {
 } from 'mediasoup/node/lib/types';
 import { config } from './config';
 import fs from 'fs';
-import { detect } from './engine/detection';
+import { deleteSdpFile } from './engine/transcoder';
+import Humanizer from './engine/humanizer';
 // import { StreamInput } from 'fluent-ffmpeg-multistream';
 
 require('dotenv').config();
@@ -31,25 +30,27 @@ require('dotenv').config();
 export class Server {
   private app: Application = express();
 
-  private httpServer: HTTPServer | undefined;
+  private httpServer: HTTPServer | HTTPSServer | undefined;
 
   private io: SocketIOServer | undefined;
 
-  private worker: Worker | undefined;
+  private workers: Worker[] = new Array<Worker>();
 
-  private producerTransport: Transport | undefined;
+  private routers: Map<string, Router> = new Map<string, Router>();
 
-  private consumerTransport: Transport | undefined;
+  private producersTransport = new Map<string, Transport>();
 
-  private mediasoupRouter: Router | undefined;
+  private consumersTransport = new Map<string, Transport>();
 
-  private producer: Producer | undefined;
+  private producers = new Map<string, Producer>();
 
-  private consumer: Consumer | undefined;
+  private consumers = new Map<string, Consumer>();
+
+  private rtpTransports = new Map<string, PlainTransport>();
+
+  private humanizers = new Map<string, Humanizer>();
 
   private activeSockets: string[] = [];
-
-  private faceDetector: FaceDetection = new FaceDetection();
 
   private config = config;
 
@@ -82,26 +83,30 @@ export class Server {
     this.app.use(middlewares.notFound);
     this.app.use(middlewares.errorHandler);
 
-    const { sslKey, sslCrt } = config;
-    if (!fs.existsSync(sslKey) || !fs.existsSync(sslCrt)) {
-      console.error('SSL files are not found. check your config.js file');
-      process.exit(0);
+    const { useHttps, sslKey, sslCrt } = config;
+    if (!useHttps) {
+      this.httpServer = createHttpServer(this.app);
+    } else {
+      if (!fs.existsSync(sslKey) || !fs.existsSync(sslCrt)) {
+        console.error('SSL files are not found. check your config.js file');
+        process.exit(0);
+      }
+
+      const tls = {
+        cert: fs.readFileSync(sslCrt),
+        key: fs.readFileSync(sslKey),
+      };
+
+      this.httpServer = createServer(tls, this.app);
+      this.httpServer.on('error', (err) => {
+        console.error('starting web server failed:', err);
+      });
     }
-
-    const tls = {
-      cert: fs.readFileSync(sslCrt),
-      key: fs.readFileSync(sslKey),
-    };
-
-    this.httpServer = createServer(tls, this.app);
-    this.httpServer.on('error', (err) => {
-      console.error('starting web server failed:', err);
-    });
 
     this.startExpressServer();
     this.handleRoutes();
     this.io = new SocketIOServer(this.httpServer, {
-      serveClient: false,
+      serveClient: true,
       cors: {
         origin: ['http://localhost:4200'],
         methods: ['HEAD', 'GET', 'POST'],
@@ -120,124 +125,159 @@ export class Server {
 
   private handleSocket() {
     if (!this.io) throw new Error('Socket is not initialized');
-    this.io.on('connection', (socket) => {
-      socket.on('disconnect', () => {
-        console.log('client disconnected');
-      });
+    this.io.on('connection', async (socket) => {
+      console.log(`#${socket.id}# connected.`);
+      const room = (socket.handshake.query.room as string) || socket.id;
+      socket.join(room);
+      console.log(`#${socket.id}/${room}# connected.`);
+      await this.createMediasoupRouterRoom(room);
+      this.activeSockets.push(socket.id);
       socket.on('connect_error', (err) => {
-        console.error('client connection error', err);
+        console.error(
+          `#${socket.id}/${room}# connect_error due to ${err.message}`,
+        );
       });
-      socket.on('getRouterRtpCapabilities', (data, callback) => {
-        if (!this.mediasoupRouter) return;
-        callback(this.mediasoupRouter.rtpCapabilities);
-      });
-      socket.on('createProducerTransport', async (data, callback) => {
-        try {
-          const { transport, params } = await this.createWebRtcTransport();
-          this.producerTransport = transport;
-          callback(params);
-        } catch (err: any) {
-          console.error(err);
-          callback({ error: err.message });
-        }
-      });
-      socket.on('createConsumerTransport', async (data, callback) => {
-        try {
-          const { transport, params } = await this.createWebRtcTransport();
-          this.consumerTransport = transport;
-          callback(params);
-        } catch (err: any) {
-          console.error(err);
-          callback({ error: err.message });
-        }
-      });
-      socket.on('connectProducerTransport', async (data, callback) => {
-        if (!this.producerTransport) return;
-        console.log(data.dtlsParameters);
-        await this.producerTransport.connect({
-          dtlsParameters: data.dtlsParameters,
-        });
-        callback();
-      });
-      socket.on('connectConsumerTransport', async (data, callback) => {
-        if (!this.consumerTransport) return;
 
-        await this.consumerTransport.connect({
-          dtlsParameters: data.dtlsParameters,
-        });
-        callback();
+      socket.on('getRouterRtpCapabilities', (_, callback) => {
+        if (!room) return callback({ error: 'Room is not defined' });
+        const router = this.routers.get(room);
+        if (!router) return;
+        callback(router.rtpCapabilities);
       });
+
+      socket.on('createProducerTransport', async (_, callback) => {
+        if (!room) return callback({ error: 'Room is not defined' });
+        try {
+          const { transport, params } = await this.createWebRtcTransport(room);
+          this.producersTransport.set(room, transport);
+          callback(params);
+        } catch (err: any) {
+          console.error(err);
+          callback({ error: err.message });
+        }
+      });
+
+      socket.on('createConsumerTransport', async (_, callback) => {
+        if (!room) return callback({ error: 'Room is not defined' });
+        try {
+          const { transport, params } = await this.createWebRtcTransport(room);
+          this.consumersTransport.set(room, transport);
+          callback(params);
+        } catch (err: any) {
+          console.error(err);
+          callback({ error: err.message });
+        }
+      });
+
+      socket.on('connectProducerTransport', async (data, callback) => {
+        const { dtlsParameters } = data;
+        if (!room) return callback({ error: 'Room is not defined' });
+        const transport = this.producersTransport.get(room);
+        if (!transport) return callback({ error: 'Transport is not defined' });
+        await transport.connect({
+          dtlsParameters,
+        });
+        callback({ connected: true });
+      });
+
+      socket.on('connectConsumerTransport', async (data, callback) => {
+        const { dtlsParameters } = data;
+        if (!room) return callback({ error: 'Room is not defined' });
+        const transport = this.consumersTransport.get(room);
+        if (!transport) return callback({ error: 'Transport is not defined' });
+        await transport.connect({
+          dtlsParameters,
+        });
+        callback({ connected: true });
+      });
+
       socket.on('produce', async (data, callback) => {
         const { kind, rtpParameters } = data;
-        if (!this.producerTransport) return;
-        this.producer = await this.producerTransport.produce({
+        if (!room) return callback({ error: 'Room is not defined' });
+        const transport = this.producersTransport.get(room);
+        if (!transport) return callback({ error: 'Transport is not defined' });
+        const producer = await transport.produce({
           kind,
           rtpParameters,
         });
-        callback({ id: this.producer.id });
+        this.producers.set(room, producer);
+        callback({ id: producer.id });
+      });
 
-        // inform clients about new producer
-        socket.broadcast.emit('newProducer');
-      });
       socket.on('consume', async (data, callback) => {
-        if (!this.producer) return;
-        callback(
-          await this.createConsumer(this.producer, data.rtpCapabilities),
-        );
+        const { rtpCapabilities } = data;
+        if (!room) return callback({ error: 'Room is not defined' });
+        const producer = this.producers.get(room);
+        if (!producer) return callback({ error: 'Producer is not defined' });
+        callback(await this.createConsumer(room, producer, rtpCapabilities));
       });
-      socket.on('resume', async (data, callback) => {
-        if (!this.consumer) return;
-        await this.consumer.resume();
-        callback();
-      });
-      socket.on('startRecording', async (data, callback) => {
-        const rtpVideoConsumer = await this.createRtpVideoConsumer();
+
+      socket.on('initializeDetector', async (_, callback) => {
+        if (!room) return callback({ error: 'Room is not defined' });
+        const rtpVideoConsumer = await this.createRtpVideoConsumer(room);
         callback(rtpVideoConsumer.id);
       });
-
-      socket.on('detect', async (data) => {
-        await detect(data.guid, socket);
+      socket.on('detect', async (_) => {
+        const humanizerInstance = new Humanizer(6);
+        this.humanizers.set(room, humanizerInstance);
+        humanizerInstance.run(room, socket);
       });
-    });
-    this.io.on('disconnect', (socket) => {
-      console.log('Socket disconnected:', socket.id);
-      this.activeSockets = this.activeSockets.filter(
-        (existingSocket) => existingSocket !== socket.id,
-      );
+
+      socket.on('disconnect', () => {
+        socket.leave(room);
+        this.activeSockets = this.activeSockets.filter(
+          (existingSocket) => existingSocket !== socket.id,
+        );
+        this.closeStreams(room);
+        console.log(`#${socket.id}/${room}# disconnected.`);
+      });
     });
   }
 
-  private async runMediasoupWorker() {
-    this.worker = await mediasoup.createWorker({
+  private async createMediasoupWorker() {
+    const worker = await mediasoup.createWorker({
       logLevel: this.config.mediasoup.worker.logLevel,
       logTags: this.config.mediasoup.worker.logTags,
       rtcMinPort: this.config.mediasoup.worker.rtcMinPort,
       rtcMaxPort: this.config.mediasoup.worker.rtcMaxPort,
     });
 
-    if (!this.worker) throw new Error('Worker is not initialized');
+    if (!worker) throw new Error('Worker is not initialized');
 
-    this.worker.on('died', () => {
-      if (!this.worker) throw new Error('Worker is not initialized');
+    worker.on('died', () => {
+      if (!worker) throw new Error('Worker is not initialized');
       console.error(
         'mediasoup worker died, exiting in 2 seconds... [pid:%d]',
-        this.worker.pid,
+        worker.pid,
       );
       setTimeout(() => process.exit(1), 2000);
     });
 
-    const mediaCodecs = this.config.mediasoup.router.mediaCodecs;
-    this.mediasoupRouter = await this.worker.createRouter({ mediaCodecs });
+    this.workers.push(worker);
   }
 
-  private async createWebRtcTransport() {
+  private async createMediasoupRouterRoom(roomGuid: string) {
+    let worker = this.workers[0];
+    if (!worker) {
+      await this.createMediasoupWorker();
+      worker = this.workers[0];
+    }
+
+    const mediaCodecs = this.config.mediasoup.router.mediaCodecs;
+    const router = await worker.createRouter({ mediaCodecs });
+    this.routers.set(roomGuid, router);
+    return router;
+  }
+
+  private async createWebRtcTransport(roomGuid: string) {
     const { initialAvailableOutgoingBitrate } =
       this.config.mediasoup.webRtcTransport;
 
-    if (!this.mediasoupRouter) throw new Error('Router is not initialized');
+    const router = this.routers.get(roomGuid);
+    if (!router) throw new Error('Router is not initialized');
     if (!this.config.mediasoup.webRtcTransport.listenIps)
       throw new Error('Listen ips is not initialized');
-    const transport = await this.mediasoupRouter.createWebRtcTransport({
+    const transport = await router.createWebRtcTransport({
       listenIps: this.config.mediasoup.webRtcTransport.listenIps,
       enableUdp: true,
       enableTcp: true,
@@ -257,53 +297,57 @@ export class Server {
   }
 
   private async createConsumer(
+    room: string,
     producer: Producer,
     rtpCapabilities: RtpCapabilities,
   ) {
+    const router = this.routers.get(room);
     if (
-      this.mediasoupRouter &&
-      !this.mediasoupRouter.canConsume({
+      router &&
+      !router.canConsume({
         producerId: producer.id,
         rtpCapabilities,
       })
     ) {
       console.error('can not consume');
-      return;
+      return false;
     }
+    let consumer;
     try {
-      if (!this.consumerTransport)
-        throw new Error('Consumer transport is not initialized');
-
-      this.consumer = await this.consumerTransport.consume({
+      const transport = this.consumersTransport.get(room);
+      if (!transport) throw new Error('Consumer transport is not initialized');
+      consumer = await transport.consume({
         producerId: producer.id,
         rtpCapabilities,
         paused: false,
       });
+
+      this.consumers.set(room, consumer);
+
+      if (consumer.type === 'simulcast') {
+        await consumer.setPreferredLayers({
+          spatialLayer: 2,
+          temporalLayer: 2,
+        });
+      }
     } catch (error) {
       console.error('consume failed', error);
       return;
     }
-
-    if (this.consumer.type === 'simulcast') {
-      await this.consumer.setPreferredLayers({
-        spatialLayer: 2,
-        temporalLayer: 2,
-      });
-    }
-
     return {
       producerId: producer.id,
-      id: this.consumer.id,
-      kind: this.consumer.kind,
-      rtpParameters: this.consumer.rtpParameters,
-      type: this.consumer.type,
-      producerPaused: this.consumer.producerPaused,
+      id: consumer.id,
+      kind: consumer.kind,
+      rtpParameters: consumer.rtpParameters,
+      type: consumer.type,
+      producerPaused: consumer.producerPaused,
     };
   }
 
-  async createRtpVideoConsumer() {
-    if (!this.mediasoupRouter) throw new Error('Router is not initialized');
-    const rtpTransport = await this.mediasoupRouter.createPlainTransport({
+  async createRtpVideoConsumer(room: string) {
+    const router = this.routers.get(room);
+    if (!router) throw new Error('Router is not initialized');
+    const rtpTransport = await router.createPlainTransport({
       comedia: false,
       rtcpMux: false,
       ...this.config.mediasoup.plainTransport,
@@ -344,92 +388,36 @@ export class Server {
       rtpTransport.tuple.protocol,
     );
 
-    if (!this.producer) throw new Error('Producer is not initialized');
+    const producer = this.producers.get(room);
+    if (!producer) throw new Error('Producer is not initialized');
     const rtpVideoConsumer = await rtpTransport.consume({
-      producerId: this.producer.id,
-      rtpCapabilities: this.mediasoupRouter.rtpCapabilities,
+      producerId: producer.id,
+      rtpCapabilities: router.rtpCapabilities,
       paused: true,
     });
-    setInterval(() => {
+
+    this.rtpTransports.set(room, rtpTransport);
+
+    const statsInterval = setInterval(() => {
+      if (rtpVideoConsumer.closed) {
+        clearInterval(statsInterval);
+        return;
+      }
       rtpVideoConsumer.getStats().then((stats) => {
-        console.log('[VIDEO CONSUMER] RTP Plain Stats', stats);
+        console.log('[VIDEO CONSUMER] RTP Plain Stats #', room, '#', stats);
       });
-    }, 20000);
+    }, 15000);
 
-    console.log(
-      'mediasoup VIDEO RTP SEND consumer created, kind: %s, type: %s, paused: %s, SSRC: %s CNAME: %s',
-      rtpVideoConsumer.kind,
-      rtpVideoConsumer.type,
-      rtpVideoConsumer.paused,
-      rtpVideoConsumer.rtpParameters.encodings,
-      rtpVideoConsumer.rtpParameters.rtcp,
-    );
-
-    console.log('rtpVideoConsumer', rtpVideoConsumer.producerId);
     await rtpVideoConsumer.resume();
-    // const inputUri = `rtp://${rtpTransport.tuple.remoteIp}:${rtpTransport.tuple.remotePort}`;
-    const sdpFileUri = this.createSdpFile(
-      rtpTransport,
-      rtpVideoConsumer.producerId,
-    );
-    console.log('[URI] SDP FILE URI', sdpFileUri);
-    // console.log('inputUri', inputUri);
-    // const stream = fs.createWriteStream(`tmp/${rtpTransport.id}.png`);
-    // setTimeout(() => {
-    //   const ffmpegCommand = ffmpeg(fs.createReadStream(sdpFile), {
-    //     logger: console,
-    //   })
-    //     .inputOptions(['-protocol_whitelist', 'file,rtp,udp,pipe', '-f', 'sdp'])
-    //     // .outputOptions([
-    //     //   '-preset',
-    //     //   'ultrafast',
-    //     //   '-f',
-    //     //   'image2',
-    //     //   '-pix_fmt',
-    //     //   'rgb24',
-    //     //   '-vcodec',
-    //     //   'png',
-    //     //   '-s',
-    //     //   VIDEO_OUTPUT_SIZE,
-    //     // ])
-    //     .on('start', (start) => {
-    //       console.log('start', start);
-    //     })
-    //     .on('codecData', (data) => {
-    //       console.log('codecData', data);
-    //     })
-    //     .on('progress', (progress) => {
-    //       console.log('progress', progress);
-    //     })
-    //     .on('error', (err) => {
-    //       console.log('err', err);
-    //     })
-    //     .on('end', () => {
-    //       console.log('Transconding End.');
-    //     })
-    //     .outputOptions([
-    //       '-preset',
-    //       'ultrafast',
-    //       '-s',
-    //       VIDEO_OUTPUT_SIZE,
-    //       '-q:v',
-    //       '0.5',
-    //     ])
-    //     .outputFPS(5)
-    //     .output(`tmp/${rtpTransport.id}/%03d.jpg`);
-    //   ffmpegCommand.run();
-    // }, 500);
-
-    // setTimeout(() => {
-    //   ffmpegCommand.kill('SIGINT');
-    // }, 5000);
+    const sdpFileUri = this.createSdpFile(rtpTransport, room);
+    console.log(`#${room}# SDP FILE URI`, sdpFileUri);
     return rtpVideoConsumer;
   }
 
   createSdpFile = (rtpTransport: PlainTransport, id: string) => {
     const sdpFile = `v=0
     o=- 0 0 IN IP4 ${rtpTransport.tuple.localIp}
-    s=WebRTC Video Stream
+    s=WebRTC_Room_${id}
     t=0 0
     m=video ${rtpTransport.tuple.remotePort} RTP/SAVPF 97
     c=IN IP4 ${rtpTransport.tuple.localIp}
@@ -445,22 +433,41 @@ export class Server {
     return `tmp/sdp/${id}.sdp`;
   };
 
+  private closeStreams(room: string) {
+    const humanizer = this.humanizers.get(room);
+    if (humanizer) humanizer.close();
+
+    const rtpTransport = this.rtpTransports.get(room);
+    if (rtpTransport) rtpTransport.close();
+
+    const consumer = this.consumers.get(room);
+    if (consumer) consumer.close();
+
+    const producer = this.producers.get(room);
+    if (producer) producer.close();
+
+    const router = this.routers.get(room);
+    if (router) router.close();
+
+    this.rtpTransports.delete(room);
+    this.consumers.delete(room);
+    this.producers.delete(room);
+    this.routers.delete(room);
+    deleteSdpFile(room);
+    console.log(`#${room}# closed - All transports closed - SDP File Deleted`);
+  }
+
   private async startMediaServer() {
-    // this.app.listen(process.env.MEDIASERVER_PORT || 4000, () => {
-    //   console.log(
-    //     `Media server is running on port ${
-    //       process.env.MEDIASERVER_PORT || 4000
-    //     }`,
-    //   );
-    // });
-    await this.runMediasoupWorker();
+    await this.createMediasoupWorker();
   }
 
   private startExpressServer() {
     if (!this.httpServer) throw new Error('Http server is not initialized');
     this.httpServer.listen(config.listenPort || 5000, () => {
       console.log(
-        `Express server is running on port ${config.listenPort || 5000}`,
+        `Express server is running on port ${
+          config.listenPort || 5000
+        } - Using HTTPS: ${config.useHttps}`,
       );
     });
   }

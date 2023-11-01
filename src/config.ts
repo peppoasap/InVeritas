@@ -1,8 +1,10 @@
 import * as mediasoup from 'mediasoup';
 
 export const config: {
+  production: boolean;
   listenIp: string;
   listenPort: number;
+  useHttps: boolean;
   sslCrt: string;
   sslKey: string;
   mediasoup: {
@@ -17,8 +19,10 @@ export const config: {
     };
   };
 } = {
+  production: false,
   listenIp: '0.0.0.0',
   listenPort: 5000,
+  useHttps: true,
   sslCrt: '/etc/ssl/private/cert.pem',
   sslKey: '/etc/ssl/private/private.key',
   mediasoup: {
@@ -67,6 +71,7 @@ export const config: {
     webRtcTransport: {
       listenIps: [
         {
+          // ip: '127.0.0.1',
           ip: '0.0.0.0',
           announcedIp: '209.38.192.81',
         },
@@ -84,3 +89,6 @@ export const config: {
     },
   },
 };
+
+// for production
+// change 127.0.0.1 to 0.0.0.0, enable announcedIp with your public ip address and enable ssl with your certificate and key
